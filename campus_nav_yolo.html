@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#12284B">
+<title>Campus Navigator</title>
+<style>
+  :root {
+    --sky: #12284B;        /* deep evening blue, page ground */
+    --paving: #FFD23F;     /* tactile-paving yellow, the one bold thing */
+    --paving-press: #E6B92E;
+    --stop: #D9412B;
+    --ink: #FFFFFF;
+    --ink-on-paving: #12284B;
+    --muted: #B7C3D6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--sky);
+    color: var(--ink);
+    /* System font: respects the user's own accessibility text settings */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header {
+    padding: 16px 20px 8px;
+  }
+  h1 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--muted);
+    letter-spacing: 0.01em;
+  }
+  #status {
+    min-height: 5.5rem;
+    padding: 12px 20px 16px;
+    font-size: 1.4rem;
+    line-height: 1.35;
+    font-weight: 500;
+  }
+  main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0 12px 12px;
+  }
+  .big {
+    flex: 1;
+    width: 100%;
+    border: 0;
+    border-radius: 18px;
+    background: var(--paving);
+    color: var(--ink-on-paving);
+    font: inherit;
+    font-size: clamp(1.6rem, 6vw, 2.2rem);
+    font-weight: 700;
+    line-height: 1.2;
+    padding: 16px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .big:active { background: var(--paving-press); }
+  .big:focus-visible { outline: 4px solid var(--ink); outline-offset: 3px; }
+  .big.stop { background: var(--stop); color: var(--ink); }
+  .big.stop:active { filter: brightness(0.9); }
+
+  #picker {
+    position: fixed; inset: 0;
+    background: var(--sky);
+    display: none;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  #picker.open { display: flex; }
+  #picker header { padding: 16px 20px; }
+  #picker h2 { font-size: 1.5rem; font-weight: 700; }
+  #list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .dest {
+    width: 100%;
+    min-height: 84px;
+    border: 3px solid var(--paving);
+    border-radius: 16px;
+    background: transparent;
+    color: var(--ink);
+    font: inherit;
+    font-size: 1.5rem;
+    font-weight: 600;
+    text-align: left;
+    padding: 16px 20px;
+    cursor: pointer;
+  }
+  .dest:active { background: rgba(255,210,63,0.18); }
+  .dest:focus-visible { outline: 4px solid var(--ink); outline-offset: 2px; }
+  #back {
+    margin: 12px;
+    min-height: 72px;
+    border: 0;
+    border-radius: 16px;
+    background: var(--paving);
+    color: var(--ink-on-paving);
+    font: inherit;
+    font-size: 1.4rem;
+    font-weight: 700;
+  }
+
+  /* Camera / YOLO */
+  #cameraPanel {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: #000;
+    flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+             env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  #cameraPanel.open { display: flex; }
+  #cameraWrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: #000;
+  }
+  #cameraVideo, #cameraCanvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  #cameraCanvas { pointer-events: none; }
+  #cameraInfo {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    top: 12px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(0,0,0,.62);
+    color: #fff;
+    font-size: 1rem;
+    z-index: 2;
+  }
+  #cameraControls {
+    display: flex;
+    gap: 10px;
+    padding: 12px;
+    background: var(--sky);
+  }
+  #cameraControls button {
+    flex: 1;
+    min-height: 64px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--paving);
+    color: var(--ink-on-paving);
+    font: inherit;
+    font-size: 1.15rem;
+    font-weight: 700;
+  }
+  #cameraControls #closeCamera { background: var(--stop); color: #fff; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<header><h1>Campus Navigator</h1></header>
+<div id="status" role="status" aria-live="polite">Press a button to begin.</div>
+
+<main>
+  <button class="big" id="btnWhere">Where am I</button>
+  <button class="big" id="btnChoose">Choose destination</button>
+  <button class="big" id="btnCamera">Open Camera &amp; Detect Objects</button>
+  <button class="big stop" id="btnStop">Stop navigation</button>
+</main>
+
+
+<section id="cameraPanel" aria-label="Camera object detection">
+  <div id="cameraWrap">
+    <video id="cameraVideo" autoplay playsinline muted></video>
+    <canvas id="cameraCanvas"></canvas>
+    <div id="cameraInfo">Loading YOLO model…</div>
+  </div>
+  <div id="cameraControls">
+    <button id="speakDetection">Speak</button>
+    <button id="closeCamera">Close Camera</button>
+  </div>
+</section>
+
+<section id="picker" role="dialog" aria-modal="true" aria-labelledby="pickerTitle">
+  <header><h2 id="pickerTitle">Choose destination</h2></header>
+  <div id="list"></div>
+  <button id="back">Back</button>
+</section>
+
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
+<script>
+// ---------------------------------------------------------------
+// CAMPUS MAP  — your surveyed coordinates. Add the main gate here.
+// ---------------------------------------------------------------
+const CAMPUS = [
+  { name: 'Instrumentation',           lat: 12.947479, lon: 80.139441 },
+  { name: 'DOHM',                      lat: 12.947800, lon: 80.139718 },
+  { name: 'Admin Block',               lat: 12.947817, lon: 80.139529 },
+  { name: 'Electronics Block 2',       lat: 12.947468, lon: 80.139497 },
+  { name: 'IT Department',             lat: 12.948117, lon: 80.139876 },
+  { name: 'Abdul Kalam Lecture Hall',  lat: 12.948136, lon: 80.139840 },
+  { name: 'Rajam Lecture Hall',        lat: 12.948453, lon: 80.140104 },
+  { name: 'IoT Block',                 lat: 12.948497, lon: 80.140140 },
+  { name: 'Electronics New',           lat: 12.948534, lon: 80.140137 },
+  { name: 'Electronics Old',           lat: 12.948542, lon: 80.140215 },
+  { name: 'Applied Science',           lat: 12.949438, lon: 80.140932 },
+  { name: 'Hanger 1',                  lat: 12.949988, lon: 80.141152 },
+  { name: 'Hanger 2',                  lat: 12.949097, lon: 80.140584 },
+];
+
+// Written by walking each route. Tactile landmarks, not step counts.
+const ENTRANCE = {
+  'Admin Block':
+    'The entrance is not in front of you. Turn right and follow the wall ' +
+    'until it opens into an archway. Four steps up, handrail on the right.',
+};
+
+// ---------------------------------------------------------------
+// GEOMETRY
+// ---------------------------------------------------------------
+const rad = d => d * Math.PI / 180;
+
+function distanceM(lat1, lon1, lat2, lon2) {
+  const R = 6371000, p1 = rad(lat1), p2 = rad(lat2);
+  const dp = rad(lat2 - lat1), dl = rad(lon2 - lon1);
+  const a = Math.sin(dp/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const p1 = rad(lat1), p2 = rad(lat2), dl = rad(lon2 - lon1);
+  const y = Math.sin(dl) * Math.cos(p2);
+  const x = Math.cos(p1)*Math.sin(p2) - Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function relativeDirection(heading, brg) {
+  const diff = (brg - heading + 360) % 360;
+  if (diff < 20 || diff > 340) return 'straight ahead';
+  if (diff < 160) return 'on your right';
+  if (diff > 200) return 'on your left';
+  return 'behind you';
+}
+
+function nearest(lat, lon) {
+  let best = null, bestD = Infinity;
+  for (const b of CAMPUS) {
+    const d = distanceM(lat, lon, b.lat, b.lon);
+    if (d < bestD) { bestD = d; best = b; }
+  }
+  return { building: best, d: bestD };
+}
+
+const round5 = d => Math.round(d / 5) * 5;
+
+// ---------------------------------------------------------------
+// VOICE
+// ---------------------------------------------------------------
+const statusEl = document.getElementById('status');
+let lastSpoken = null;
+
+function speak(text, force = false) {
+  if (!force && text === lastSpoken) return;
+  lastSpoken = text;
+  statusEl.textContent = text;
+  if (!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-IN';
+  u.rate = 0.95;
+  speechSynthesis.speak(u);
+}
+
+// ---------------------------------------------------------------
+// COMPASS
+// iPhone gives webkitCompassHeading; Android gives alpha (absolute).
+// iPhone also requires permission, and only from a button tap.
+// ---------------------------------------------------------------
+let heading = null;
+let compassStarted = false;
+
+function onOrientation(e) {
+  if (typeof e.webkitCompassHeading === 'number') {
+    heading = e.webkitCompassHeading;
+  } else if (e.absolute && e.alpha != null) {
+    heading = (360 - e.alpha) % 360;
+  }
+}
+
+async function startCompass() {
+  if (compassStarted) return;
+  compassStarted = true;
+  const DOE = window.DeviceOrientationEvent;
+  if (DOE && typeof DOE.requestPermission === 'function') {
+    try {
+      const r = await DOE.requestPermission();
+      if (r !== 'granted') return;
+    } catch (_) { return; }
+    window.addEventListener('deviceorientation', onOrientation, true);
+  } else if ('ondeviceorientationabsolute' in window) {
+    window.addEventListener('deviceorientationabsolute', onOrientation, true);
+  } else {
+    window.addEventListener('deviceorientation', onOrientation, true);
+  }
+}
+
+// ---------------------------------------------------------------
+// GPS
+// ---------------------------------------------------------------
+const GPS_OPTS = { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 };
+
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) return reject(new Error('no-geo'));
+    navigator.geolocation.getCurrentPosition(resolve, reject, GPS_OPTS);
+  });
+}
+
+function gpsErrorMessage(err) {
+  if (!err) return 'Location unavailable.';
+  if (err.code === 1) return 'Location permission is needed. Please allow location for this page.';
+  if (err.code === 3) return 'Location timed out. Move to open sky and try again.';
+  return 'Location unavailable.';
+}
+
+// ---------------------------------------------------------------
+// WHERE AM I
+// ---------------------------------------------------------------
+async function whereAmI() {
+  startCompass();
+  speak('Finding your location.', true);
+  let pos;
+  try { pos = await getPosition(); }
+  catch (e) { speak(gpsErrorMessage(e), true); return; }
+
+  const { latitude: lat, longitude: lon, accuracy } = pos.coords;
+  const { building, d } = nearest(lat, lon);
+
+  if (accuracy > 25) {
+    speak(`GPS signal is weak. Nearest is probably ${building.name}, ` +
+          `about ${round5(d)} metres away.`, true);
+    return;
+  }
+
+  // Two buildings within GPS error of each other -> don't guess, name both
+  const sorted = CAMPUS
+    .map(b => ({ b, dist: distanceM(lat, lon, b.lat, b.lon) }))
+    .sort((x, y) => x.dist - y.dist);
+  if (sorted.length > 1 && d < 20 &&
+      (sorted[1].dist - sorted[0].dist) < Math.max(accuracy, 8)) {
+    speak(`You are near ${sorted[0].b.name} or ${sorted[1].b.name}. ` +
+          `GPS cannot tell them apart here.`, true);
+    return;
+  }
+
+  if (d < 15) {
+    speak(`You are at ${building.name}.`, true);
+  } else if (heading != null) {
+    const side = relativeDirection(heading, bearingDeg(lat, lon, building.lat, building.lon));
+    speak(`Nearest is ${building.name}, about ${round5(d)} metres, ${side}.`, true);
+  } else {
+    speak(`Nearest is ${building.name}, about ${round5(d)} metres away.`, true);
+  }
+}
+
+// ---------------------------------------------------------------
+// NAVIGATE TO
+// ---------------------------------------------------------------
+let destination = null;
+let watchId = null;
+let lastBand = null;
+let wakeLock = null;
+
+async function keepScreenOn() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); }
+  catch (_) {}
+}
+function releaseScreen() {
+  try { wakeLock && wakeLock.release(); } catch (_) {}
+  wakeLock = null;
+}
+
+function startNavigation(dest) {
+  startCompass();
+  destination = dest;
+  lastBand = null;
+  lastSpoken = null;
+  speak(`Navigating to ${dest.name}.`, true);
+  keepScreenOn();
+  if (watchId != null) navigator.geolocation.clearWatch(watchId);
+  watchId = navigator.geolocation.watchPosition(onPosition,
+    err => speak(gpsErrorMessage(err), true), GPS_OPTS);
+  document.getElementById('btnChoose').textContent = `Going to ${dest.name}`;
+}
+
+function onPosition(pos) {
+  if (!destination) return;
+  const { latitude: lat, longitude: lon } = pos.coords;
+  const d = distanceM(lat, lon, destination.lat, destination.lon);
+
+  if (d < 6) {
+    const entrance = ENTRANCE[destination.name] || 'Use your cane to locate the entrance.';
+    speak(`You have reached ${destination.name}. ${entrance}`, true);
+    stopNavigation(false);
+    return;
+  }
+
+  const band = d < 15 ? 'very close' : d < 50 ? 'close' : d < 100 ? 'approaching' : 'far';
+  if (band !== lastBand) {
+    lastBand = band;
+    if (heading != null) {
+      const side = relativeDirection(heading, bearingDeg(lat, lon, destination.lat, destination.lon));
+      speak(`${destination.name}, ${round5(d)} metres, ${side}.`, true);
+    } else {
+      speak(`${destination.name}, ${round5(d)} metres away.`, true);
+    }
+  }
+}
+
+function stopNavigation(announce = true) {
+  if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+  destination = null;
+  lastBand = null;
+  releaseScreen();
+  document.getElementById('btnChoose').textContent = 'Choose destination';
+  if (announce) speak('Navigation stopped.', true);
+}
+
+// ---------------------------------------------------------------
+// DESTINATION PICKER
+// ---------------------------------------------------------------
+const picker = document.getElementById('picker');
+const list = document.getElementById('list');
+
+for (const b of CAMPUS) {
+  const btn = document.createElement('button');
+  btn.className = 'dest';
+  btn.textContent = b.name;
+  btn.addEventListener('click', () => { closePicker(); startNavigation(b); });
+  list.appendChild(btn);
+}
+
+function openPicker() {
+  startCompass();
+  picker.classList.add('open');
+  speak('Choose a destination. Swipe through the list and double tap to select.', true);
+  list.querySelector('button').focus();
+}
+function closePicker() {
+  picker.classList.remove('open');
+  document.getElementById('btnChoose').focus();
+}
+
+
+// ---------------------------------------------------------------
+// CAMERA + PRETRAINED OBJECT DETECTION
+// Uses the pretrained COCO-SSD model in the phone browser.
+// This is not the custom YOLO model from Python; it is a ready-to-run
+// pretrained browser detector for common objects.
+// ---------------------------------------------------------------
+const cameraPanel = document.getElementById('cameraPanel');
+const cameraVideo = document.getElementById('cameraVideo');
+const cameraCanvas = document.getElementById('cameraCanvas');
+const cameraInfo = document.getElementById('cameraInfo');
+const btnCamera = document.getElementById('btnCamera');
+const closeCameraBtn = document.getElementById('closeCamera');
+const speakDetectionBtn = document.getElementById('speakDetection');
+
+let cameraStream = null;
+let detector = null;
+let detecting = false;
+let latestDetections = [];
+let lastDetectionSpeech = '';
+let lastDetectionSpeechTime = 0;
+
+function titleCase(s) {
+  return s.replace(/\b\w/g, c => c.toUpperCase());
+}
+
+async function loadDetector() {
+  if (detector) return detector;
+  cameraInfo.textContent = 'Loading pretrained object detector…';
+  detector = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+  cameraInfo.textContent = 'Camera ready. Looking for objects…';
+  return detector;
+}
+
+function resizeCanvas() {
+  const rect = cameraVideo.getBoundingClientRect();
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cameraCanvas.width = Math.max(1, Math.round(rect.width * dpr));
+  cameraCanvas.height = Math.max(1, Math.round(rect.height * dpr));
+}
+
+function drawDetections(predictions) {
+  const ctx = cameraCanvas.getContext('2d');
+  ctx.clearRect(0, 0, cameraCanvas.width, cameraCanvas.height);
+
+  const vw = cameraVideo.videoWidth;
+  const vh = cameraVideo.videoHeight;
+  if (!vw || !vh) return;
+
+  // Match object-fit: cover.
+  const cw = cameraCanvas.width, ch = cameraCanvas.height;
+  const scale = Math.max(cw / vw, ch / vh);
+  const shownW = vw * scale, shownH = vh * scale;
+  const offX = (cw - shownW) / 2, offY = (ch - shownH) / 2;
+
+  ctx.lineWidth = Math.max(3, cw / 220);
+  ctx.font = `${Math.max(14, cw / 28)}px sans-serif`;
+  ctx.textBaseline = 'top';
+
+  for (const p of predictions) {
+    if (p.score < 0.55) continue;
+    const [x, y, w, h] = p.bbox;
+    const sx = x * scale + offX;
+    const sy = y * scale + offY;
+    const sw = w * scale;
+    const sh = h * scale;
+
+    ctx.strokeStyle = '#FFD23F';
+    ctx.strokeRect(sx, sy, sw, sh);
+
+    const label = `${titleCase(p.class)} ${Math.round(p.score * 100)}%`;
+    const pad = 5;
+    const tw = ctx.measureText(label).width + pad * 2;
+    const th = Math.max(22, parseInt(ctx.font, 10) + pad * 2);
+    ctx.fillStyle = 'rgba(0,0,0,.72)';
+    ctx.fillRect(sx, Math.max(0, sy - th), tw, th);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(label, sx + pad, Math.max(0, sy - th) + pad);
+  }
+}
+
+function speakDetections(predictions, force = false) {
+  const useful = predictions
+    .filter(p => p.score >= 0.65)
+    .sort((a,b) => b.score - a.score)
+    .slice(0, 3);
+
+  if (!useful.length) return;
+
+  const names = [...new Set(useful.map(p => titleCase(p.class)))];
+  const text = names.length === 1
+    ? `${names[0]} detected.`
+    : `${names.join(', ')} detected.`;
+
+  const now = Date.now();
+  if (!force && (text === lastDetectionSpeech || now - lastDetectionSpeechTime < 5000)) return;
+
+  lastDetectionSpeech = text;
+  lastDetectionSpeechTime = now;
+  speak(text, true);
+}
+
+async function detectLoop() {
+  if (!detecting || !detector || cameraVideo.readyState < 2) return;
+
+  try {
+    latestDetections = await detector.detect(cameraVideo);
+    drawDetections(latestDetections);
+
+    const useful = latestDetections
+      .filter(p => p.score >= 0.55)
+      .sort((a,b) => b.score - a.score);
+
+    if (useful.length) {
+      cameraInfo.textContent =
+        useful.slice(0, 4).map(p => `${titleCase(p.class)} ${Math.round(p.score*100)}%`).join(' • ');
+      speakDetections(latestDetections);
+    } else {
+      cameraInfo.textContent = 'No common objects detected.';
+    }
+  } catch (e) {
+    cameraInfo.textContent = 'Detection error. Try again.';
+    console.error(e);
+  }
+
+  if (detecting) requestAnimationFrame(detectLoop);
+}
+
+async function openCamera() {
+  cameraPanel.classList.add('open');
+  cameraInfo.textContent = 'Requesting camera permission…';
+
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Camera API unavailable. Use HTTPS or localhost.');
+    }
+
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
+
+    cameraVideo.srcObject = cameraStream;
+    await cameraVideo.play();
+    resizeCanvas();
+
+    await loadDetector();
+    detecting = true;
+    lastDetectionSpeech = '';
+    lastDetectionSpeechTime = 0;
+    requestAnimationFrame(detectLoop);
+  } catch (e) {
+    console.error(e);
+    cameraInfo.textContent =
+      e.name === 'NotAllowedError'
+        ? 'Camera permission denied. Allow camera access and try again.'
+        : 'Could not open camera. Use HTTPS and try again.';
+  }
+}
+
+function closeCamera() {
+  detecting = false;
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+  cameraVideo.srcObject = null;
+  const ctx = cameraCanvas.getContext('2d');
+  ctx.clearRect(0, 0, cameraCanvas.width, cameraCanvas.height);
+  cameraPanel.classList.remove('open');
+}
+
+window.addEventListener('resize', resizeCanvas);
+btnCamera.addEventListener('click', openCamera);
+closeCameraBtn.addEventListener('click', closeCamera);
+speakDetectionBtn.addEventListener('click', () => speakDetections(latestDetections, true));
+
+
+// ---------------------------------------------------------------
+// WIRING
+// ---------------------------------------------------------------
+document.getElementById('btnWhere').addEventListener('click', whereAmI);
+document.getElementById('btnChoose').addEventListener('click', openPicker);
+document.getElementById('btnStop').addEventListener('click', () => stopNavigation(true));
+document.getElementById('back').addEventListener('click', closePicker);
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && destination) keepScreenOn();
+});
+</script>
+</body>
+</html>
